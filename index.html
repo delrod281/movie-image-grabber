@@ -10,7 +10,7 @@
       font-family: Arial, sans-serif;
       background: #111;
       color: white;
-      max-width: 1200px;
+      max-width: 1400px;
       margin: auto;
       padding: 30px;
     }
@@ -27,10 +27,10 @@
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
-      margin: 25px 0;
+      margin: 20px 0;
     }
 
-    input {
+    input, select {
       padding: 12px;
       font-size: 16px;
       border-radius: 6px;
@@ -43,33 +43,78 @@
     }
 
     button {
-      padding: 12px 20px;
-      font-size: 16px;
+      padding: 12px 18px;
+      font-size: 15px;
       border: none;
       border-radius: 6px;
       cursor: pointer;
     }
 
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin: 20px 0;
+    }
+
     #results {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 15px;
-      margin-top: 25px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border-radius: 10px;
+      overflow: hidden;
+      padding-bottom: 10px;
+    }
+
+    .image-wrap {
+      position: relative;
     }
 
     .movie-image {
       width: 100%;
-      border-radius: 8px;
+      display: block;
       cursor: pointer;
     }
 
-    .movie-image:hover {
-      opacity: 0.8;
+    .check {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      transform: scale(1.5);
+      cursor: pointer;
+    }
+
+    .meta {
+      padding: 10px 12px 0;
+      color: #aaa;
+      font-size: 13px;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px 0;
+    }
+
+    .card-actions button {
+      flex: 1;
+      padding: 8px;
+      font-size: 13px;
     }
 
     #status {
       margin-top: 15px;
       color: #aaa;
+    }
+
+    .selected-count {
+      color: #ddd;
     }
   </style>
 </head>
@@ -77,7 +122,7 @@
 <body>
 
   <h1>🎬 Movie Image Grabber</h1>
-  <p>Find high-resolution movie images from TMDb.</p>
+  <p>Browse and grab high-resolution movie images from TMDb.</p>
 
   <div class="controls">
     <input
@@ -96,13 +141,24 @@
       placeholder="Enter a movie title..."
     >
 
+    <select id="imageCount">
+      <option value="20">20 images</option>
+      <option value="30">30 images</option>
+      <option value="50" selected>50 images</option>
+    </select>
+
     <button onclick="findMovie()">Find Images</button>
   </div>
 
+  <div class="toolbar">
+    <button onclick="selectAll()">Select All</button>
+    <button onclick="clearSelection()">Clear Selection</button>
+    <button onclick="downloadSelected()">Download Selected</button>
+    <span class="selected-count" id="selectedCount">0 selected</span>
+  </div>
+
   <div id="status"></div>
-
   <div id="results"></div>
-
 
 <script>
 
@@ -110,18 +166,17 @@ const tokenBox = document.getElementById("token");
 const movieBox = document.getElementById("movieTitle");
 const statusBox = document.getElementById("status");
 const resultsBox = document.getElementById("results");
+const selectedCountBox = document.getElementById("selectedCount");
 
+let currentImages = [];
 
-// Load saved token
 const savedToken = localStorage.getItem("tmdbToken");
 
 if (savedToken) {
   tokenBox.value = savedToken;
 }
 
-
 function saveToken() {
-
   const token = tokenBox.value.trim();
 
   if (!token) {
@@ -130,13 +185,10 @@ function saveToken() {
   }
 
   localStorage.setItem("tmdbToken", token);
-
   alert("Token saved on this browser.");
 }
 
-
 async function tmdbRequest(url) {
-
   const token = tokenBox.value.trim();
 
   if (!token) {
@@ -157,21 +209,21 @@ async function tmdbRequest(url) {
   return response.json();
 }
 
-
 async function findMovie() {
-
   const title = movieBox.value.trim();
+  const limit = Number(document.getElementById("imageCount").value);
 
   if (!title) {
     return;
   }
 
   resultsBox.innerHTML = "";
+  currentImages = [];
+  updateSelectedCount();
 
   statusBox.textContent = "Searching for " + title + "...";
 
   try {
-
     const searchData = await tmdbRequest(
       "https://api.themoviedb.org/3/search/movie?query="
       + encodeURIComponent(title)
@@ -205,7 +257,9 @@ async function findMovie() {
       return b.width - a.width;
     });
 
-    images = images.slice(0, 20);
+    images = images.slice(0, limit);
+
+    currentImages = images;
 
     if (!images.length) {
       statusBox.textContent = "No backdrop images found.";
@@ -213,53 +267,141 @@ async function findMovie() {
     }
 
     statusBox.textContent =
-      `${movie.title}: showing ${images.length} images. Click an image to open the full-resolution version.`;
+      `${movie.title}: showing ${images.length} images.`;
 
-    images.forEach(image => {
+    images.forEach((image, index) => {
+
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "image-wrap";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "check";
+      checkbox.dataset.index = index;
+      checkbox.addEventListener("change", updateSelectedCount);
 
       const img = document.createElement("img");
-
-      img.src =
-        "https://image.tmdb.org/t/p/w500"
-        + image.file_path;
-
+      img.src = "https://image.tmdb.org/t/p/w500" + image.file_path;
       img.className = "movie-image";
-
-      img.title =
-        `${image.width} × ${image.height}`;
+      img.title = `${image.width} × ${image.height}`;
 
       img.onclick = () => {
-
-        window.open(
-          "https://image.tmdb.org/t/p/original"
-          + image.file_path,
-          "_blank"
-        );
-
+        checkbox.checked = !checkbox.checked;
+        updateSelectedCount();
       };
 
-      resultsBox.appendChild(img);
+      imageWrap.appendChild(img);
+      imageWrap.appendChild(checkbox);
 
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `${image.width} × ${image.height}`;
+
+      const actions = document.createElement("div");
+      actions.className = "card-actions";
+
+      const openBtn = document.createElement("button");
+      openBtn.textContent = "Full Res";
+      openBtn.onclick = () => {
+        window.open(
+          "https://image.tmdb.org/t/p/original" + image.file_path,
+          "_blank"
+        );
+      };
+
+      const downloadBtn = document.createElement("button");
+      downloadBtn.textContent = "Download";
+      downloadBtn.onclick = () => {
+        downloadImage(image.file_path, index + 1);
+      };
+
+      actions.appendChild(openBtn);
+      actions.appendChild(downloadBtn);
+
+      card.appendChild(imageWrap);
+      card.appendChild(meta);
+      card.appendChild(actions);
+
+      resultsBox.appendChild(card);
     });
 
-  }
-
-  catch (error) {
-
+  } catch (error) {
     statusBox.textContent = error.message;
-
   }
-
 }
 
+function updateSelectedCount() {
+  const checked = document.querySelectorAll(".check:checked");
+  selectedCountBox.textContent = `${checked.length} selected`;
+}
 
-// Press Enter to search
+function selectAll() {
+  document.querySelectorAll(".check").forEach(box => {
+    box.checked = true;
+  });
+
+  updateSelectedCount();
+}
+
+function clearSelection() {
+  document.querySelectorAll(".check").forEach(box => {
+    box.checked = false;
+  });
+
+  updateSelectedCount();
+}
+
+async function downloadImage(filePath, number) {
+  const url = "https://image.tmdb.org/t/p/original" + filePath;
+
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+
+    const blobUrl = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = `movie-image-${String(number).padStart(2, "0")}.jpg`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(blobUrl);
+
+  } catch (error) {
+    window.open(url, "_blank");
+  }
+}
+
+async function downloadSelected() {
+  const selectedBoxes = Array.from(
+    document.querySelectorAll(".check:checked")
+  );
+
+  if (!selectedBoxes.length) {
+    alert("Select at least one image first.");
+    return;
+  }
+
+  for (const box of selectedBoxes) {
+    const index = Number(box.dataset.index);
+    const image = currentImages[index];
+
+    await downloadImage(image.file_path, index + 1);
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+}
+
 movieBox.addEventListener("keydown", function(event) {
-
   if (event.key === "Enter") {
     findMovie();
   }
-
 });
 
 </script>
