@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Movie Image Grabber</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: white;
+      max-width: 1200px;
+      margin: auto;
+      padding: 30px;
+    }
+
+    h1 {
+      margin-bottom: 5px;
+    }
+
+    p {
+      color: #aaa;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 25px 0;
+    }
+
+    input {
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: none;
+    }
+
+    #movieTitle {
+      flex: 1;
+      min-width: 250px;
+    }
+
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #results {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 15px;
+      margin-top: 25px;
+    }
+
+    .movie-image {
+      width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .movie-image:hover {
+      opacity: 0.8;
+    }
+
+    #status {
+      margin-top: 15px;
+      color: #aaa;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>🎬 Movie Image Grabber</h1>
+  <p>Find high-resolution movie images from TMDb.</p>
+
+  <div class="controls">
+    <input
+      type="password"
+      id="token"
+      placeholder="TMDb Read Access Token"
+    >
+
+    <button onclick="saveToken()">Save Token</button>
+  </div>
+
+  <div class="controls">
+    <input
+      type="text"
+      id="movieTitle"
+      placeholder="Enter a movie title..."
+    >
+
+    <button onclick="findMovie()">Find Images</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="results"></div>
+
+
+<script>
+
+const tokenBox = document.getElementById("token");
+const movieBox = document.getElementById("movieTitle");
+const statusBox = document.getElementById("status");
+const resultsBox = document.getElementById("results");
+
+
+// Load saved token
+const savedToken = localStorage.getItem("tmdbToken");
+
+if (savedToken) {
+  tokenBox.value = savedToken;
+}
+
+
+function saveToken() {
+
+  const token = tokenBox.value.trim();
+
+  if (!token) {
+    alert("Paste your TMDb Read Access Token first.");
+    return;
+  }
+
+  localStorage.setItem("tmdbToken", token);
+
+  alert("Token saved on this browser.");
+}
+
+
+async function tmdbRequest(url) {
+
+  const token = tokenBox.value.trim();
+
+  if (!token) {
+    throw new Error("Enter your TMDb Read Access Token first.");
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      accept: "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("TMDb request failed. Check your token.");
+  }
+
+  return response.json();
+}
+
+
+async function findMovie() {
+
+  const title = movieBox.value.trim();
+
+  if (!title) {
+    return;
+  }
+
+  resultsBox.innerHTML = "";
+
+  statusBox.textContent = "Searching for " + title + "...";
+
+  try {
+
+    const searchData = await tmdbRequest(
+      "https://api.themoviedb.org/3/search/movie?query="
+      + encodeURIComponent(title)
+    );
+
+    if (!searchData.results.length) {
+      statusBox.textContent = "Movie not found.";
+      return;
+    }
+
+    const movie = searchData.results[0];
+
+    const year = movie.release_date
+      ? movie.release_date.substring(0, 4)
+      : "";
+
+    statusBox.textContent =
+      `Found ${movie.title} ${year ? "(" + year + ")" : ""}. Loading images...`;
+
+    const imageData = await tmdbRequest(
+      `https://api.themoviedb.org/3/movie/${movie.id}/images`
+    );
+
+    let images = imageData.backdrops || [];
+
+    images.sort((a, b) => {
+      if (b.vote_average !== a.vote_average) {
+        return b.vote_average - a.vote_average;
+      }
+
+      return b.width - a.width;
+    });
+
+    images = images.slice(0, 20);
+
+    if (!images.length) {
+      statusBox.textContent = "No backdrop images found.";
+      return;
+    }
+
+    statusBox.textContent =
+      `${movie.title}: showing ${images.length} images. Click an image to open the full-resolution version.`;
+
+    images.forEach(image => {
+
+      const img = document.createElement("img");
+
+      img.src =
+        "https://image.tmdb.org/t/p/w500"
+        + image.file_path;
+
+      img.className = "movie-image";
+
+      img.title =
+        `${image.width} × ${image.height}`;
+
+      img.onclick = () => {
+
+        window.open(
+          "https://image.tmdb.org/t/p/original"
+          + image.file_path,
+          "_blank"
+        );
+
+      };
+
+      resultsBox.appendChild(img);
+
+    });
+
+  }
+
+  catch (error) {
+
+    statusBox.textContent = error.message;
+
+  }
+
+}
+
+
+// Press Enter to search
+movieBox.addEventListener("keydown", function(event) {
+
+  if (event.key === "Enter") {
+    findMovie();
+  }
+
+});
+
+</script>
+
+</body>
+</html>
