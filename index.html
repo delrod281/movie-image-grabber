@@ -117,6 +117,8 @@
       color: #ddd;
     }
   </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 
 <body>
@@ -153,7 +155,7 @@
   <div class="toolbar">
     <button onclick="selectAll()">Select All</button>
     <button onclick="clearSelection()">Clear Selection</button>
-    <button onclick="downloadSelected()">Download Selected</button>
+    <button onclick="downloadSelectedZip()">Download Selected ZIP</button>
     <span class="selected-count" id="selectedCount">0 selected</span>
   </div>
 
@@ -169,6 +171,8 @@ const resultsBox = document.getElementById("results");
 const selectedCountBox = document.getElementById("selectedCount");
 
 let currentImages = [];
+let currentMovieTitle = "Movie";
+let currentMovieYear = "";
 
 const savedToken = localStorage.getItem("tmdbToken");
 
@@ -209,6 +213,10 @@ async function tmdbRequest(url) {
   return response.json();
 }
 
+function safeName(name) {
+  return name.replace(/[<>:"/\\|?*]/g, "").trim();
+}
+
 async function findMovie() {
   const title = movieBox.value.trim();
   const limit = Number(document.getElementById("imageCount").value);
@@ -236,12 +244,13 @@ async function findMovie() {
 
     const movie = searchData.results[0];
 
-    const year = movie.release_date
+    currentMovieTitle = movie.title;
+    currentMovieYear = movie.release_date
       ? movie.release_date.substring(0, 4)
       : "";
 
     statusBox.textContent =
-      `Found ${movie.title} ${year ? "(" + year + ")" : ""}. Loading images...`;
+      `Found ${movie.title} ${currentMovieYear ? "(" + currentMovieYear + ")" : ""}. Loading images...`;
 
     const imageData = await tmdbRequest(
       `https://api.themoviedb.org/3/movie/${movie.id}/images`
@@ -365,7 +374,10 @@ async function downloadImage(filePath, number) {
 
     const link = document.createElement("a");
     link.href = blobUrl;
-    link.download = `movie-image-${String(number).padStart(2, "0")}.jpg`;
+
+    const movieName = safeName(currentMovieTitle);
+    link.download =
+      `${movieName} ${String(number).padStart(2, "0")}.jpg`;
 
     document.body.appendChild(link);
     link.click();
@@ -378,7 +390,8 @@ async function downloadImage(filePath, number) {
   }
 }
 
-async function downloadSelected() {
+async function downloadSelectedZip() {
+
   const selectedBoxes = Array.from(
     document.querySelectorAll(".check:checked")
   );
@@ -388,13 +401,80 @@ async function downloadSelected() {
     return;
   }
 
-  for (const box of selectedBoxes) {
-    const index = Number(box.dataset.index);
-    const image = currentImages[index];
+  const zip = new JSZip();
 
-    await downloadImage(image.file_path, index + 1);
+  const folderName = safeName(
+    currentMovieYear
+      ? `${currentMovieTitle} (${currentMovieYear})`
+      : currentMovieTitle
+  );
 
-    await new Promise(resolve => setTimeout(resolve, 400));
+  const folder = zip.folder(folderName);
+
+  statusBox.textContent =
+    `Preparing ${selectedBoxes.length} full-resolution images...`;
+
+  try {
+
+    let count = 1;
+
+    for (const box of selectedBoxes) {
+
+      const index = Number(box.dataset.index);
+      const image = currentImages[index];
+
+      const url =
+        "https://image.tmdb.org/t/p/original"
+        + image.file_path;
+
+      statusBox.textContent =
+        `Downloading image ${count} of ${selectedBoxes.length}...`;
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("Could not download one of the images.");
+      }
+
+      const blob = await response.blob();
+
+      const extension =
+        image.file_path.split(".").pop() || "jpg";
+
+      const filename =
+        `${safeName(currentMovieTitle)} ${String(count).padStart(2, "0")}.${extension}`;
+
+      folder.file(filename, blob);
+
+      count++;
+    }
+
+    statusBox.textContent = "Creating ZIP file...";
+
+    const zipBlob = await zip.generateAsync({
+      type: "blob"
+    });
+
+    const zipUrl = URL.createObjectURL(zipBlob);
+
+    const link = document.createElement("a");
+    link.href = zipUrl;
+    link.download = `${folderName}.zip`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(zipUrl);
+
+    statusBox.textContent =
+      `Done! Downloaded ${selectedBoxes.length} images as ${folderName}.zip`;
+
+  } catch (error) {
+
+    statusBox.textContent =
+      "ZIP download failed: " + error.message;
+
   }
 }
 
